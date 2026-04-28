@@ -1,6 +1,6 @@
 # ShareBox
 
-A simplified Dropbox clone built with FastAPI and Google Cloud Platform for the Cloud Services & Platforms module (CSP).
+A simplified cloud storage application built with FastAPI and Google Cloud Platform, allowing users to manage files and directories in the cloud.
 
 ## Tech Stack
 

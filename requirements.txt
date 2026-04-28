@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+google-cloud-firestore
+google-auth
+jinja2
+python-multipart

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Sharebox</title>
+        <link type="text/css" href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet"/>
+        <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}"></script>
+    </head>
+    <body>
+        <div id="login-box" hidden>
+            Email: <input type="email" id="email"><br/>
+            Password: <input type="password" id="password"><br/>
+            <button id="login">Login</button>
+            <button id="sign-up">Sign Up</button>
+        </div>
+        <button id="sign-out" hidden>Sign out</button>
+
+        {% if user_token %}
+            <h2>Welcome, {{ user_token.email }}</h2>
+
+            <p>Current directory: <strong>{{ current_path }}</strong>
+            {% if current_path != '/' %}
+                 <a href="/?path={{ current_path.rsplit('/', 1)[0] or '/' }}">Go up (../)</a>
+            {% endif %}
+            </p>
+
+            <form action="/create-directory" method="post">
+                <input type="hidden" name="current_path" value="{{ current_path }}"/>
+                <input type="text" name="dirname" placeholder="New folder name" required/>
+                <button type="submit">Create Directory</button>
+            </form>
+
+            <h3>Directories</h3>
+            {% if directories %}
+                <ul>
+                    {% for dir in directories %}
+                        <li>
+                            <a href="/?path={{ dir.full_path }}">{{ dir.name }}</a>
+                            <form action="/delete-directory" method="post" style="display:inline">
+                                <input type="hidden" name="dir_id" value="{{ dir.id }}"/>
+                                <input type="hidden" name="current_path" value="{{ current_path }}"/>
+                                <button type="submit">Delete</button>
+                            </form>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No directories yet.</p>
+            {% endif %}
+
+        {% endif %}
+
+        {% if error_message %}
+            <p style="color:red;">{{ error_message }}</p>
+        {% endif %}
+    </body>
+</html>

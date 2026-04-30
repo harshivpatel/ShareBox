@@ -17,34 +17,55 @@
         {% if user_token %}
             <h2>Welcome, {{ user_token.email }}</h2>
 
-            <p>Current directory: <strong>{{ current_path }}</strong>
-            {% if current_path != '/' %}
-                 <a href="/?path={{ current_path.rsplit('/', 1)[0] or '/' }}">Go up (../)</a>
-            {% endif %}
-            </p>
+            <p>Current directory: <strong>{{ current_path }}</strong></p>
 
+            {% if current_path != '/' %}
+                <a href="/navigate-up">Go up (../)</a>
+            {% endif %}
+
+            <!-- Create Directory -->
             <form action="/create-directory" method="post">
-                <input type="hidden" name="current_path" value="{{ current_path }}"/>
                 <input type="text" name="dirname" placeholder="New folder name" required/>
                 <button type="submit">Create Directory</button>
             </form>
 
+            <!-- Upload File -->
+            <form action="/upload-file" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" required/>
+                <button type="submit">Upload File</button>
+            </form>
+
+            <!-- Directories -->
             <h3>Directories</h3>
             {% if directories %}
                 <ul>
                     {% for dir in directories %}
                         <li>
-                            <a href="/?path={{ dir.full_path }}">{{ dir.name }}</a>
+                            <form action="/navigate" method="post" style="display:inline">
+                                <input type="hidden" name="dir_name" value="{{ dir.name }}"/>
+                                <button type="submit">📁 {{ dir.name }}</button>
+                            </form>
                             <form action="/delete-directory" method="post" style="display:inline">
                                 <input type="hidden" name="dir_id" value="{{ dir.id }}"/>
-                                <input type="hidden" name="current_path" value="{{ current_path }}"/>
                                 <button type="submit">Delete</button>
                             </form>
                         </li>
                     {% endfor %}
                 </ul>
             {% else %}
-                <p>No directories yet.</p>
+                <p>No directories here.</p>
+            {% endif %}
+
+            <!-- Files -->
+            <h3>Files</h3>
+            {% if files %}
+                <ul>
+                    {% for file in files %}
+                        <li>📄 {{ file.name }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No files here.</p>
             {% endif %}
 
         {% endif %}

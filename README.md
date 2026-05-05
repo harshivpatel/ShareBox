@@ -19,7 +19,8 @@ ShareBox/
 │   ├── firebase-login.js    # Firebase Auth logic (Frontend)
 │   └── styles.css           # Custom UI styling
 ├── templates/
-│   └── main.html            # Main dashboard template (Jinja2)
+│   ├── main.html
+│   └── duplicates.html
 ├── main.py                  # FastAPI backend and Firestore logic
 ├── local_constants.py       # Local GCP/Firebase config (git-ignored)
 ├── requirements.txt         # Python dependencies
@@ -32,7 +33,7 @@ ShareBox/
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/harshivpatel/ShareBox.git
 cd ShareBox
 ```
 

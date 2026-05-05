@@ -3,13 +3,15 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js"
 
+
 const firebaseConfig = {
-    apiKey: "AIzaDzts5XQ-Acq2cRl118qOga37sOndxzA",
-    authDomain: "csp-2024.firebaseapp.com",
-    projectId: "csp-2024",
-    storageBucket: "csp-2024.appspot.com",
-    messagingSenderId: "1042001801629",
-    appId: "1:1042001801629:web:970ee593a5165195e67f74"
+  apiKey: "AIzaSyBSLiR9Xv1ShuZ_FtqtFUFro5CCuCD5nuA",
+  authDomain: "sharebox-ad3ba.firebaseapp.com",
+  projectId: "sharebox-ad3ba",
+  storageBucket: "sharebox-ad3ba.firebasestorage.app",
+  messagingSenderId: "614113561043",
+  appId: "1:614113561043:web:80efa0c5f06e06ba2ec726",
+  measurementId: "G-6L7X7Y2548"
 };
 
 // Maps Firebase error codes to human readable messages

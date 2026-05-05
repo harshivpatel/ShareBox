@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import google.oauth2.id_token
@@ -49,20 +49,39 @@ def get_directories(user_id, current_path):
 
 
 def get_files(user_id, current_path):
-    # Fetches all files in current path and flags duplicates using MD5 hash comparison.
-    files = db.collection('files').where(
+    # Fetches all files in current path owned by user plus files shared with user.
+    # Flags duplicates using MD5 hash comparison.
+    # Marks shared files as read-only.
+    owned_files = db.collection('files').where(
         'owner', '==', user_id
     ).where(
         'path', '==', current_path
     ).get()
 
+    shared_files = db.collection('files').where(
+        'shared_with', 'array_contains', user_id
+    ).where(
+        'path', '==', current_path
+    ).get()
+
     file_list = []
-    for f in files:
+
+    for f in owned_files:
         data = f.to_dict()
         file_list.append({
-            'id':   f.id,
-            'name': data['name'],
-            'hash': data.get('hash', '')
+            'id':       f.id,
+            'name':     data['name'],
+            'hash':     data.get('hash', ''),
+            'is_owner': True
+        })
+
+    for f in shared_files:
+        data = f.to_dict()
+        file_list.append({
+            'id':       f.id,
+            'name':     data['name'],
+            'hash':     data.get('hash', ''),
+            'is_owner': False
         })
 
     # Count how many files share each hash
@@ -77,6 +96,31 @@ def get_files(user_id, current_path):
         f['is_duplicate'] = hash_counts.get(f['hash'], 0) > 1
 
     return file_list
+
+
+def get_all_duplicates(user_id):
+    # Fetches all files owned by the user across all directories.
+    # Groups them by hash and returns only groups with more than one file.
+    all_files = db.collection('files').where(
+        'owner', '==', user_id
+    ).get()
+
+    hash_map = {}
+    for f in all_files:
+        data = f.to_dict()
+        h = data.get('hash', '')
+        if not h:
+            continue
+        if h not in hash_map:
+            hash_map[h] = []
+        hash_map[h].append({
+            'id':   f.id,
+            'name': data['name'],
+            'path': data['path']
+        })
+
+    # Return only groups that have more than one file
+    return [group for group in hash_map.values() if len(group) > 1]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -212,7 +256,6 @@ async def delete_directory(request: Request, dir_id: str = Form(...)):
 
     current_path = request.cookies.get("current_path", "/")
 
-    # Block deletion of root directory
     dir_doc = db.collection('directories').document(dir_id).get()
     if not dir_doc.exists:
         return RedirectResponse('/', status_code=302)
@@ -221,13 +264,11 @@ async def delete_directory(request: Request, dir_id: str = Form(...)):
     if dir_data.get('path') == '/' and dir_data.get('name') == 'root':
         return RedirectResponse('/', status_code=302)
 
-    # Build the full path of the directory being deleted
     if dir_data.get('path') == '/':
         full_path = '/' + dir_data.get('name')
     else:
         full_path = dir_data.get('path') + '/' + dir_data.get('name')
 
-    # Check for subdirectories and files inside this directory
     subdirs = db.collection('directories').where(
         'path', '==', full_path
     ).get()
@@ -272,11 +313,9 @@ async def upload_file(request: Request, file: UploadFile = File(...), overwrite:
 
     current_path = request.cookies.get("current_path", "/")
 
-    # Read file contents and compute MD5 hash
     contents = await file.read()
     file_hash = hashlib.md5(contents).hexdigest()
 
-    # Check if file already exists in this directory
     existing = db.collection('files').where(
         'owner', '==', user_token['user_id']
     ).where(
@@ -286,14 +325,12 @@ async def upload_file(request: Request, file: UploadFile = File(...), overwrite:
     ).get()
 
     if len(existing) > 0 and overwrite != "yes":
-        # File exists and user has not confirmed overwrite
         response = RedirectResponse('/', status_code=302)
         response.set_cookie("current_path", current_path)
         response.set_cookie("overwrite_file", file.filename)
         return response
 
     if len(existing) > 0 and overwrite == "yes":
-        # Delete old GCS blob and Firestore document before re-uploading
         storage_client = storage.Client(project=local_constants.PROJECT_NAME)
         bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
         for doc in existing:
@@ -301,14 +338,12 @@ async def upload_file(request: Request, file: UploadFile = File(...), overwrite:
             bucket.blob(old_blob_path).delete()
             db.collection('files').document(doc.id).delete()
 
-    # Upload to GCS
     storage_client = storage.Client(project=local_constants.PROJECT_NAME)
     bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
     blob_path = user_token['user_id'] + current_path + "/" + file.filename
     blob = bucket.blob(blob_path)
     blob.upload_from_file(io.BytesIO(contents), content_type=file.content_type)
 
-    # Save file document to Firestore with hash
     db.collection('files').add({
         'name':      file.filename,
         'path':      current_path,
@@ -352,17 +387,12 @@ async def delete_file(request: Request, file_id: str = Form(...)):
 
     current_path = request.cookies.get("current_path", "/")
 
-    # Get file document to find the blob path in GCS
     file_doc = db.collection('files').document(file_id).get()
     if file_doc.exists:
         blob_path = file_doc.to_dict().get('blob_path')
-
-        # Delete from GCS
         storage_client = storage.Client(project=local_constants.PROJECT_NAME)
         bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
         bucket.blob(blob_path).delete()
-
-        # Delete from Firestore
         db.collection('files').document(file_id).delete()
 
     response = RedirectResponse('/', status_code=302)
@@ -373,10 +403,6 @@ async def delete_file(request: Request, file_id: str = Form(...)):
 @app.get("/download-file/{file_id}")
 async def download_file(request: Request, file_id: str):
     # Downloads a file by streaming it directly from GCS to the browser.
-    # Avoids signed URLs which require a service account key.
-    from fastapi.responses import StreamingResponse
-    import io
-
     id_token = request.cookies.get("token")
     user_token = None
 
@@ -402,7 +428,6 @@ async def download_file(request: Request, file_id: str):
         bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
         blob = bucket.blob(blob_path)
 
-        # Download blob into memory and stream it to the browser
         file_bytes = io.BytesIO()
         blob.download_to_file(file_bytes)
         file_bytes.seek(0)
@@ -414,30 +439,6 @@ async def download_file(request: Request, file_id: str):
         )
 
     return RedirectResponse('/', status_code=302)
-
-def get_all_duplicates(user_id):
-    # Fetches all files owned by the user across all directories.
-    # Groups them by hash and returns only groups with more than one file.
-    all_files = db.collection('files').where(
-        'owner', '==', user_id
-    ).get()
-
-    hash_map = {}
-    for f in all_files:
-        data = f.to_dict()
-        h = data.get('hash', '')
-        if not h:
-            continue
-        if h not in hash_map:
-            hash_map[h] = []
-        hash_map[h].append({
-            'id':   f.id,
-            'name': data['name'],
-            'path': data['path']
-        })
-
-    # Return only groups that have more than one file
-    return [group for group in hash_map.values() if len(group) > 1]
 
 
 @app.get("/duplicates", response_class=HTMLResponse)
@@ -464,3 +465,39 @@ async def duplicates(request: Request):
             'duplicate_groups': duplicate_groups
         }
     )
+
+
+@app.post("/share-file", response_class=RedirectResponse)
+async def share_file(request: Request, file_id: str = Form(...), share_email: str = Form(...)):
+    # Shares a file with another user by adding their uid to the shared_with array.
+    # Looks up the target user by email in the users collection.
+    id_token = request.cookies.get("token")
+    user_token = None
+
+    if id_token:
+        try:
+            user_token = google.oauth2.id_token.verify_firebase_token(
+                id_token, firebase_request_adapter
+            )
+        except ValueError as err:
+            print(str(err))
+            return RedirectResponse('/', status_code=302)
+
+    if not user_token:
+        return RedirectResponse('/', status_code=302)
+
+    current_path = request.cookies.get("current_path", "/")
+
+    target_users = db.collection('users').where(
+        'email', '==', share_email
+    ).get()
+
+    if len(target_users) > 0:
+        target_uid = target_users[0].id
+        db.collection('files').document(file_id).update({
+            'shared_with': firestore.ArrayUnion([target_uid])
+        })
+
+    response = RedirectResponse('/', status_code=302)
+    response.set_cookie("current_path", current_path)
+    return response

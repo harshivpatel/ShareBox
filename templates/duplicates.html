@@ -1,28 +1,35 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>Sharebox - Global Duplicates</title>
-        <link type="text/css" href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet"/>
-    </head>
-    <body>
-        <h2>Global Duplicate Files</h2>
-        <a href="/">Back to files</a>
+<html lang="en">
+<head>
+    <title>ShareBox — Global Duplicates</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}"/>
+</head>
+<body>
 
-        {% if duplicate_groups %}
-            {% for group in duplicate_groups %}
-                <div style="border:1px solid red; padding:10px; margin:10px 0;">
-                    <p><strong>These files have identical content:</strong></p>
-                    <ul>
-                        {% for file in group %}
-                            <li style="color:red;">
-                                ⚠️ {{ file.name }} — located at <strong>{{ file.path }}</strong>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </div>
+<div class="topbar">
+    <div class="topbar-logo">Share<span>Box</span></div>
+    <a href="/" class="btn btn-sm">← Back to files</a>
+</div>
+
+<div class="main">
+    <div class="section-title">Global Duplicate Files</div>
+
+    {% if duplicate_groups %}
+        {% for group in duplicate_groups %}
+        <div class="dup-group">
+            <div class="dup-group-title">⚠ Identical files — {{ group|length }} copies</div>
+            {% for file in group %}
+            <div class="dup-item">
+                <span>📄 {{ file.name }}</span>
+                <span class="dup-path">{{ file.path }}</span>
+            </div>
             {% endfor %}
-        {% else %}
-            <p>No duplicate files found across your ShareBox.</p>
-        {% endif %}
-    </body>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="empty-state">No duplicate files found across your ShareBox.</p>
+    {% endif %}
+</div>
+
+</body>
 </html>

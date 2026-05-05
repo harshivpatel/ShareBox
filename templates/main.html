@@ -1,119 +1,198 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>Sharebox</title>
-        <link type="text/css" href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet"/>
-        <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}"></script>
-    </head>
-    <body>
-        <div id="login-box" hidden>
-            Email: <input type="email" id="email"><br/>
-            Password: <input type="password" id="password"><br/>
-            <button id="login">Login</button>
-            <button id="sign-up">Sign Up</button>
+<html lang="en">
+<head>
+    <title>ShareBox</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}"/>
+    <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}"></script>
+</head>
+<body>
+
+{% if not user_token %}
+<div class="auth-wrapper">
+    <div class="auth-box">
+        <h1>ShareBox</h1>
+        <p>Cloud file storage. Sign in to continue.</p>
+
+        <div id="login-box">
+        <div class="auth-field">
+            <label>Email</label>
+            <input type="email" id="email" placeholder="you@example.com"/>
         </div>
-        <button id="sign-out" hidden>Sign out</button>
+        <div class="auth-field">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="••••••••"/>
+        </div>
+        <div class="auth-buttons">
+            <button id="login" class="btn btn-primary">Login</button>
+            <button id="sign-up" class="btn">Sign Up</button>
+        </div>
+        <div id="auth-error" style="color: var(--danger); font-size: 12px; margin-top: 12px; display:none;"></div>
+    </div>
 
-        {% if user_token %}
-            <h2>Welcome, {{ user_token.email }}</h2>
+        <button id="sign-out" class="btn btn-danger" hidden>Sign out</button>
+    </div>
+</div>
 
-            <p>Current directory: <strong>{{ current_path }}</strong></p>
+{% else %}
 
-            {% if current_path != '/' %}
-                <a href="/navigate-up">Go up (../)</a>
-            {% endif %}
+<div class="topbar">
+    <div class="topbar-logo">Share<span>Box</span></div>
+    <div class="topbar-user">
+        signed in as <strong>{{ user_token.email }}</strong>
+    </div>
+    <div style="display:flex; gap:12px; align-items:center;">
+        <a href="/duplicates" class="btn btn-sm">🔍 Global Duplicates</a>
+        <button id="sign-out" class="btn btn-sm btn-danger">Sign out</button>
+        <button id="login" hidden></button>
+        <button id="sign-up" hidden></button>
+        <input id="email" hidden/>
+        <input id="password" hidden/>
+    </div>
+</div>
 
-            <a href="/duplicates">🔍 Find Global Duplicates</a>
+<div id="login-box" hidden></div>
 
-            <!-- Overwrite confirmation banner -->
-            {% if request.cookies.get('overwrite_file') %}
-                <div style="background:orange; padding:10px; margin:10px 0;">
-                    <p>File <strong>{{ request.cookies.get('overwrite_file') }}</strong> already exists. Do you want to overwrite it?</p>
-                    <form action="/upload-file" method="post" enctype="multipart/form-data" style="display:inline">
-                        <input type="file" name="file" required/>
-                        <input type="hidden" name="overwrite" value="yes"/>
-                        <button type="submit">Yes, overwrite</button>
-                    </form>
-                    <form action="/clear-overwrite" method="post" style="display:inline">
-                        <button type="submit">Cancel</button>
-                    </form>
-                </div>
-            {% endif %}
+<div class="main">
 
-            <!-- Directory not empty error -->
-            {% if request.cookies.get('dir_error') %}
-                <p style="color:red;">Cannot delete directory — it still contains files or subdirectories.</p>
-            {% endif %}
+    <div class="breadcrumb">
+        <span>~/</span>
+        {% if current_path != '/' %}
+            <a href="/navigate-up">Go up (../)</a>
+            <span>/</span>
+        {% endif %}
+        <strong>{{ current_path }}</strong>
+    </div>
 
-            <!-- Create Directory -->
-            <form action="/create-directory" method="post">
-                <input type="text" name="dirname" placeholder="New folder name" required/>
-                <button type="submit">Create Directory</button>
-            </form>
+    <!-- Alerts -->
+    {% if request.cookies.get('overwrite_file') %}
+    <div class="alert alert-warning">
+        ⚠ <strong>{{ request.cookies.get('overwrite_file') }}</strong> already exists in this directory. Overwrite it?
+        <form action="/upload-file" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required/>
+            <input type="hidden" name="overwrite" value="yes"/>
+            <button class="btn btn-sm btn-primary" type="submit">Yes, overwrite</button>
+        </form>
+        <form action="/clear-overwrite" method="post" style="display:inline">
+            <button class="btn btn-sm" type="submit">Cancel</button>
+        </form>
+    </div>
+    {% endif %}
 
-            <!-- Upload File -->
-            <form action="/upload-file" method="post" enctype="multipart/form-data">
-                <input type="file" name="file" required/>
-                <button type="submit">Upload File</button>
-            </form>
+    {% if request.cookies.get('dir_error') %}
+    <div class="alert alert-danger">
+        ✗ Cannot delete — directory still contains files or subdirectories.
+    </div>
+    {% endif %}
 
-            <!-- Directories -->
-            <h3>Directories</h3>
-            {% if directories %}
-                <ul>
-                    {% for dir in directories %}
-                        <li>
-                            <form action="/navigate" method="post" style="display:inline">
-                                <input type="hidden" name="dir_name" value="{{ dir.name }}"/>
-                                <button type="submit">📁 {{ dir.name }}</button>
-                            </form>
-                            <form action="/delete-directory" method="post" style="display:inline">
-                                <input type="hidden" name="dir_id" value="{{ dir.id }}"/>
-                                <button type="submit">Delete</button>
-                            </form>
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p>No directories here.</p>
-            {% endif %}
+    {% if error_message %}
+    <div class="alert alert-danger">{{ error_message }}</div>
+    {% endif %}
 
-            <!-- Files -->
-            <!-- Files -->
-                <h3>Files</h3>
-                {% if files %}
-                    <ul>
-                        {% for file in files %}
-                            <li {% if file.is_duplicate %}style="color:red;"{% endif %}>
-                                📄 {{ file.name }}
-                                {% if file.is_duplicate %} ⚠️ Duplicate{% endif %}
-                                {% if not file.is_owner %} 🔒 Shared with you{% endif %}
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <form action="/create-directory" method="post">
+            <input type="text" name="dirname" placeholder="New folder name" required/>
+            <button class="btn btn-sm" type="submit">+ New Folder</button>
+        </form>
+        <form action="/upload-file" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required/>
+            <button class="btn btn-sm btn-primary" type="submit">↑ Upload</button>
+        </form>
+    </div>
 
-                                <a href="/download-file/{{ file.id }}">Download</a>
+    <!-- Directories -->
+    <div class="section-title">Folders</div>
+    <table class="file-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% if directories %}
+            {% for dir in directories %}
+            <tr>
+                <td>
+                    <div class="file-name">
+                        <span class="dir-icon">📁</span>
+                        <form action="/navigate" method="post" style="display:inline">
+                            <input type="hidden" name="dir_name" value="{{ dir.name }}"/>
+                            <button class="btn btn-sm" type="submit">{{ dir.name }}</button>
+                        </form>
+                    </div>
+                </td>
+                <td>
+                    <div class="file-actions">
+                        <form action="/delete-directory" method="post">
+                            <input type="hidden" name="dir_id" value="{{ dir.id }}"/>
+                            <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        {% else %}
+            <tr><td colspan="2" class="empty-state">No folders here.</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
 
-                                {% if file.is_owner %}
-                                    <form action="/delete-file" method="post" style="display:inline">
-                                        <input type="hidden" name="file_id" value="{{ file.id }}"/>
-                                        <button type="submit">Delete</button>
-                                    </form>
+    <!-- Files -->
+    <div class="section-title">Files</div>
+    <table class="file-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% if files %}
+            {% for file in files %}
+            <tr>
+                <td>
+                    <div class="file-name">
+                        <span class="file-icon">📄</span>
+                        {{ file.name }}
+                    </div>
+                </td>
+                <td>
+                    {% if file.is_duplicate %}
+                        <span class="badge-duplicate">DUPLICATE</span>
+                    {% endif %}
+                    {% if not file.is_owner %}
+                        <span class="badge-shared">SHARED</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="file-actions">
+                        <a href="/download-file/{{ file.id }}" class="btn btn-sm">↓ Download</a>
 
-                                    <form action="/share-file" method="post" style="display:inline">
-                                        <input type="hidden" name="file_id" value="{{ file.id }}"/>
-                                        <input type="text" name="share_email" placeholder="Share with email"/>
-                                        <button type="submit">Share</button>
-                                    </form>
-                                {% endif %}
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-    <p>No files here.</p>
+                        {% if file.is_owner %}
+                        <form action="/delete-file" method="post">
+                            <input type="hidden" name="file_id" value="{{ file.id }}"/>
+                            <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                        </form>
+                        <form action="/share-file" method="post">
+                            <input type="hidden" name="file_id" value="{{ file.id }}"/>
+                            <input type="text" name="share_email" placeholder="Share with email"/>
+                            <button class="btn btn-sm" type="submit">Share</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        {% else %}
+            <tr><td colspan="3" class="empty-state">No files here.</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
+
+</div>
 {% endif %}
 
-        {% endif %}
-
-        {% if error_message %}
-            <p style="color:red;">{{ error_message }}</p>
-        {% endif %}
-    </body>
+</body>
 </html>

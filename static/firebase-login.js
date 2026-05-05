@@ -1,90 +1,123 @@
 'use strict';
 
-// import firebase
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js"
 
-
 const firebaseConfig = {
-  apiKey: "AIzaSyBSLiR9Xv1ShuZ_FtqtFUFro5CCuCD5nuA",
-  authDomain: "sharebox-ad3ba.firebaseapp.com",
-  projectId: "sharebox-ad3ba",
-  storageBucket: "sharebox-ad3ba.firebasestorage.app",
-  messagingSenderId: "614113561043",
-  appId: "1:614113561043:web:80efa0c5f06e06ba2ec726",
-  measurementId: "G-6L7X7Y2548"
+    apiKey: "AIzaDzts5XQ-Acq2cRl118qOga37sOndxzA",
+    authDomain: "csp-2024.firebaseapp.com",
+    projectId: "csp-2024",
+    storageBucket: "csp-2024.appspot.com",
+    messagingSenderId: "1042001801629",
+    appId: "1:1042001801629:web:970ee593a5165195e67f74"
 };
+
+// Maps Firebase error codes to human readable messages
+function getErrorMessage(code) {
+    const errors = {
+        'auth/invalid-email':           'Please enter a valid email address.',
+        'auth/user-disabled':           'This account has been disabled.',
+        'auth/user-not-found':          'No account found with this email.',
+        'auth/wrong-password':          'Incorrect password. Please try again.',
+        'auth/email-already-in-use':    'An account with this email already exists.',
+        'auth/weak-password':           'Password must be at least 6 characters.',
+        'auth/too-many-requests':       'Too many attempts. Please try again later.',
+        'auth/network-request-failed':  'Network error. Check your connection.',
+        'auth/invalid-credential':      'Invalid email or password.',
+    };
+    return errors[code] || 'Something went wrong. Please try again.';
+}
+
+function showError(message) {
+    const el = document.getElementById("auth-error");
+    if (el) {
+        el.textContent = message;
+        el.style.display = "block";
+    }
+}
+
+function clearError() {
+    const el = document.getElementById("auth-error");
+    if (el) {
+        el.textContent = "";
+        el.style.display = "none";
+    }
+}
+
+function validateInputs(email, password) {
+    if (!email || email.trim() === '') {
+        showError('Please enter your email address.');
+        return false;
+    }
+    if (!password || password.trim() === '') {
+        showError('Please enter your password.');
+        return false;
+    }
+    if (password.length < 6) {
+        showError('Password must be at least 6 characters.');
+        return false;
+    }
+    return true;
+}
 
 window.addEventListener("load", function() {
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     updateUI(document.cookie);
 
-    // signup of a new user to firebase
     document.getElementById("sign-up").addEventListener('click', function() {
-        const email = document.getElementById("email").value
-        const password = document.getElementById("password").value
+        clearError();
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+
+        if (!validateInputs(email, password)) return;
 
         createUserWithEmailAndPassword(auth, email, password)
         .then((userCredential) => {
-            // we have a created user
             const user = userCredential.user;
-            
-            // get the id token for the user who just logged in and force a redirect to /
             user.getIdToken().then((token) => {
                 document.cookie = "token=" + token + ";path=/;SameSite=Strict";
                 window.location = "/";
             });
-
         })
         .catch((error) => {
-            // issue with signup that we will drop to console
+            showError(getErrorMessage(error.code));
             console.log(error.code + error.message);
-        })
+        });
     });
 
-    // login of a user to firebase
     document.getElementById("login").addEventListener('click', function() {
-        const email = document.getElementById("email").value
-        const password = document.getElementById("password").value
+        clearError();
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+
+        if (!validateInputs(email, password)) return;
 
         signInWithEmailAndPassword(auth, email, password)
         .then((userCredential) => {
-            // we have a signed in user
             const user = userCredential.user;
-            
-            // get the id token for the user who just logged in and force a redirect to /
             user.getIdToken().then((token) => {
                 document.cookie = "token=" + token + ";path=/;SameSite=Strict";
                 window.location = "/";
             });
-
-            
         })
         .catch((error) => {
-            // issue with signup that we will drop to console
+            showError(getErrorMessage(error.code));
             console.log(error.code + error.message);
-        })
+        });
     });
 
-    // signout from firebase
     document.getElementById("sign-out").addEventListener('click', function() {
         signOut(auth)
-        .then((output) => {
-            // remove the ID token for the user and force a redirect to /
+        .then(() => {
             document.cookie = "token=;path=/;SameSite=Strict";
             window.location = "/";
-        })
-        
+        });
     });
 });
 
-// function that will update the UI for the user depending on if they are logged in or not by checking the passed in cookie
-// that contains the token
 function updateUI(cookie) {
     var token = parseCookieToken(cookie);
-    
-    // if a user is logged in then disable the email, password, signup, and login UI elements and show the signout button and vice versa
     if(token.length > 0) {
         document.getElementById("login-box").hidden = true;
         document.getElementById("sign-out").hidden = false;
@@ -92,22 +125,14 @@ function updateUI(cookie) {
         document.getElementById("login-box").hidden = false;
         document.getElementById("sign-out").hidden = true;
     }
-};
+}
 
-// function that will take the and will return the value associated with it to the caller
 function parseCookieToken(cookie) {
-    // split the cookie out on the basis of the semi colon
     var strings = cookie.split(';');
-
-    // go through each of the strings
     for (let i = 0; i < strings.length; i++) {
-        // split the string based on the = sign. if the LHS is token then return the RHS immediately
         var temp = strings[i].split('=');
         if(temp[0] == "token")
             return temp.slice(1).join('=');
     }
-    
-    // if we got to this point then token wasn't in the cookie so return the empty string
     return "";
-
-};
+}

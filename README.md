@@ -54,8 +54,8 @@ pip install -r requirements.txt
 Create a `local_constants.py` file in the root directory:
 
 ```python
-PROJECT_NAME = "your-gcp-project-id"
-CLOUD_STORAGE_BUCKET = "your-gcp-project-id.appspot.com"
+PROJECT_NAME = "csp-2026-489809"
+CLOUD_STORAGE_BUCKET = "csp-2026-489809.appspot.com"
 ```
 
 ### 5. Authenticate with Google Cloud

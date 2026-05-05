@@ -6,6 +6,9 @@ import google.oauth2.id_token
 from google.auth.transport import requests
 from google.cloud import firestore, storage
 import local_constants
+import hashlib
+import datetime
+import io
 
 app = FastAPI()
 
@@ -46,13 +49,34 @@ def get_directories(user_id, current_path):
 
 
 def get_files(user_id, current_path):
-    # Fetches all files owned by the user in the current path.
+    # Fetches all files in current path and flags duplicates using MD5 hash comparison.
     files = db.collection('files').where(
         'owner', '==', user_id
     ).where(
         'path', '==', current_path
     ).get()
-    return [{'id': f.id, 'name': f.to_dict()['name']} for f in files]
+
+    file_list = []
+    for f in files:
+        data = f.to_dict()
+        file_list.append({
+            'id':   f.id,
+            'name': data['name'],
+            'hash': data.get('hash', '')
+        })
+
+    # Count how many files share each hash
+    hash_counts = {}
+    for f in file_list:
+        h = f['hash']
+        if h:
+            hash_counts[h] = hash_counts.get(h, 0) + 1
+
+    # Mark files that share a hash as duplicates
+    for f in file_list:
+        f['is_duplicate'] = hash_counts.get(f['hash'], 0) > 1
+
+    return file_list
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -170,37 +194,7 @@ async def create_directory(request: Request, dirname: str = Form(...)):
 @app.post("/delete-directory", response_class=RedirectResponse)
 async def delete_directory(request: Request, dir_id: str = Form(...)):
     # Deletes a directory by its Firestore document ID.
-    # Uses doc ID to prevent deleting the wrong directory.
-    id_token = request.cookies.get("token")
-    user_token = None
-
-    if id_token:
-        try:
-            user_token = google.oauth2.id_token.verify_firebase_token(
-                id_token, firebase_request_adapter
-            )
-        except ValueError as err:
-            print(str(err))
-            return RedirectResponse('/', status_code=302)
-
-    if not user_token:
-        return RedirectResponse('/', status_code=302)
-
-    dir_doc = db.collection('directories').document(dir_id).get()
-    if dir_doc.exists and dir_doc.to_dict().get('path') == '/' and dir_doc.to_dict().get('name') == 'root':
-        return RedirectResponse('/', status_code=302)
-
-    db.collection('directories').document(dir_id).delete()
-
-    response = RedirectResponse('/', status_code=302)
-    response.set_cookie("current_path", request.cookies.get("current_path", "/"))
-    return response
-
-
-@app.post("/upload-file", response_class=RedirectResponse)
-async def upload_file(request: Request, file: UploadFile = File(...)):
-    # Uploads a file to GCS and creates a File document in Firestore.
-    # Checks for duplicate filename in current directory before uploading.
+    # Blocks deletion if directory contains files or subdirectories.
     id_token = request.cookies.get("token")
     user_token = None
 
@@ -218,6 +212,70 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
     current_path = request.cookies.get("current_path", "/")
 
+    # Block deletion of root directory
+    dir_doc = db.collection('directories').document(dir_id).get()
+    if not dir_doc.exists:
+        return RedirectResponse('/', status_code=302)
+
+    dir_data = dir_doc.to_dict()
+    if dir_data.get('path') == '/' and dir_data.get('name') == 'root':
+        return RedirectResponse('/', status_code=302)
+
+    # Build the full path of the directory being deleted
+    if dir_data.get('path') == '/':
+        full_path = '/' + dir_data.get('name')
+    else:
+        full_path = dir_data.get('path') + '/' + dir_data.get('name')
+
+    # Check for subdirectories and files inside this directory
+    subdirs = db.collection('directories').where(
+        'path', '==', full_path
+    ).get()
+
+    subfiles = db.collection('files').where(
+        'path', '==', full_path
+    ).get()
+
+    if len(subdirs) > 0 or len(subfiles) > 0:
+        response = RedirectResponse('/', status_code=302)
+        response.set_cookie("current_path", current_path)
+        response.set_cookie("dir_error", "not_empty")
+        return response
+
+    db.collection('directories').document(dir_id).delete()
+
+    response = RedirectResponse('/', status_code=302)
+    response.set_cookie("current_path", current_path)
+    response.delete_cookie("dir_error")
+    return response
+
+
+@app.post("/upload-file", response_class=RedirectResponse)
+async def upload_file(request: Request, file: UploadFile = File(...), overwrite: str = Form(default="no")):
+    # Uploads a file to GCS and creates a File document in Firestore.
+    # Computes MD5 hash for duplicate detection.
+    # If file already exists, asks user to confirm overwrite.
+    id_token = request.cookies.get("token")
+    user_token = None
+
+    if id_token:
+        try:
+            user_token = google.oauth2.id_token.verify_firebase_token(
+                id_token, firebase_request_adapter
+            )
+        except ValueError as err:
+            print(str(err))
+            return RedirectResponse('/', status_code=302)
+
+    if not user_token:
+        return RedirectResponse('/', status_code=302)
+
+    current_path = request.cookies.get("current_path", "/")
+
+    # Read file contents and compute MD5 hash
+    contents = await file.read()
+    file_hash = hashlib.md5(contents).hexdigest()
+
     # Check if file already exists in this directory
     existing = db.collection('files').where(
         'owner', '==', user_token['user_id']
@@ -227,27 +285,132 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         'name', '==', file.filename
     ).get()
 
-    if len(existing) > 0:
-        # File exists — for now redirect back, Group 3 will add overwrite confirmation
+    if len(existing) > 0 and overwrite != "yes":
+        # File exists and user has not confirmed overwrite
         response = RedirectResponse('/', status_code=302)
         response.set_cookie("current_path", current_path)
+        response.set_cookie("overwrite_file", file.filename)
         return response
+
+    if len(existing) > 0 and overwrite == "yes":
+        # Delete old GCS blob and Firestore document before re-uploading
+        storage_client = storage.Client(project=local_constants.PROJECT_NAME)
+        bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
+        for doc in existing:
+            old_blob_path = doc.to_dict().get('blob_path')
+            bucket.blob(old_blob_path).delete()
+            db.collection('files').document(doc.id).delete()
 
     # Upload to GCS
     storage_client = storage.Client(project=local_constants.PROJECT_NAME)
     bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
     blob_path = user_token['user_id'] + current_path + "/" + file.filename
     blob = bucket.blob(blob_path)
-    blob.upload_from_file(file.file, content_type=file.content_type)
+    blob.upload_from_file(io.BytesIO(contents), content_type=file.content_type)
 
-    # Save file document to Firestore
+    # Save file document to Firestore with hash
     db.collection('files').add({
-        'name':     file.filename,
-        'path':     current_path,
-        'owner':    user_token['user_id'],
-        'blob_path': blob_path
+        'name':      file.filename,
+        'path':      current_path,
+        'owner':     user_token['user_id'],
+        'blob_path': blob_path,
+        'hash':      file_hash
     })
 
     response = RedirectResponse('/', status_code=302)
     response.set_cookie("current_path", current_path)
+    response.delete_cookie("overwrite_file")
     return response
+
+
+@app.post("/clear-overwrite", response_class=RedirectResponse)
+async def clear_overwrite(request: Request):
+    # Clears the overwrite confirmation cookie when user cancels.
+    response = RedirectResponse('/', status_code=302)
+    response.delete_cookie("overwrite_file")
+    return response
+
+
+@app.post("/delete-file", response_class=RedirectResponse)
+async def delete_file(request: Request, file_id: str = Form(...)):
+    # Deletes a file from GCS and removes its Firestore document.
+    # Uses document ID to prevent deleting the wrong file.
+    id_token = request.cookies.get("token")
+    user_token = None
+
+    if id_token:
+        try:
+            user_token = google.oauth2.id_token.verify_firebase_token(
+                id_token, firebase_request_adapter
+            )
+        except ValueError as err:
+            print(str(err))
+            return RedirectResponse('/', status_code=302)
+
+    if not user_token:
+        return RedirectResponse('/', status_code=302)
+
+    current_path = request.cookies.get("current_path", "/")
+
+    # Get file document to find the blob path in GCS
+    file_doc = db.collection('files').document(file_id).get()
+    if file_doc.exists:
+        blob_path = file_doc.to_dict().get('blob_path')
+
+        # Delete from GCS
+        storage_client = storage.Client(project=local_constants.PROJECT_NAME)
+        bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
+        bucket.blob(blob_path).delete()
+
+        # Delete from Firestore
+        db.collection('files').document(file_id).delete()
+
+    response = RedirectResponse('/', status_code=302)
+    response.set_cookie("current_path", current_path)
+    return response
+
+
+@app.get("/download-file/{file_id}")
+async def download_file(request: Request, file_id: str):
+    # Downloads a file by streaming it directly from GCS to the browser.
+    # Avoids signed URLs which require a service account key.
+    from fastapi.responses import StreamingResponse
+    import io
+
+    id_token = request.cookies.get("token")
+    user_token = None
+
+    if id_token:
+        try:
+            user_token = google.oauth2.id_token.verify_firebase_token(
+                id_token, firebase_request_adapter
+            )
+        except ValueError as err:
+            print(str(err))
+            return RedirectResponse('/', status_code=302)
+
+    if not user_token:
+        return RedirectResponse('/', status_code=302)
+
+    file_doc = db.collection('files').document(file_id).get()
+    if file_doc.exists:
+        file_data = file_doc.to_dict()
+        blob_path = file_data.get('blob_path')
+        file_name = file_data.get('name')
+
+        storage_client = storage.Client(project=local_constants.PROJECT_NAME)
+        bucket = storage_client.bucket(local_constants.CLOUD_STORAGE_BUCKET)
+        blob = bucket.blob(blob_path)
+
+        # Download blob into memory and stream it to the browser
+        file_bytes = io.BytesIO()
+        blob.download_to_file(file_bytes)
+        file_bytes.seek(0)
+
+        return StreamingResponse(
+            file_bytes,
+            media_type='application/octet-stream',
+            headers={'Content-Disposition': f'attachment; filename="{file_name}"'}
+        )
+
+    return RedirectResponse('/', status_code=302)

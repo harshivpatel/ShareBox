@@ -414,3 +414,53 @@ async def download_file(request: Request, file_id: str):
         )
 
     return RedirectResponse('/', status_code=302)
+
+def get_all_duplicates(user_id):
+    # Fetches all files owned by the user across all directories.
+    # Groups them by hash and returns only groups with more than one file.
+    all_files = db.collection('files').where(
+        'owner', '==', user_id
+    ).get()
+
+    hash_map = {}
+    for f in all_files:
+        data = f.to_dict()
+        h = data.get('hash', '')
+        if not h:
+            continue
+        if h not in hash_map:
+            hash_map[h] = []
+        hash_map[h].append({
+            'id':   f.id,
+            'name': data['name'],
+            'path': data['path']
+        })
+
+    # Return only groups that have more than one file
+    return [group for group in hash_map.values() if len(group) > 1]
+
+
+@app.get("/duplicates", response_class=HTMLResponse)
+async def duplicates(request: Request):
+    # Displays all duplicate files across the user's entire Dropbox.
+    id_token = request.cookies.get("token")
+    user_token = None
+    duplicate_groups = []
+
+    if id_token:
+        try:
+            user_token = google.oauth2.id_token.verify_firebase_token(
+                id_token, firebase_request_adapter
+            )
+            duplicate_groups = get_all_duplicates(user_token['user_id'])
+        except ValueError as err:
+            print(str(err))
+
+    return templates.TemplateResponse(
+        request=request,
+        name='duplicates.html',
+        context={
+            'user_token':       user_token,
+            'duplicate_groups': duplicate_groups
+        }
+    )

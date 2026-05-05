@@ -74,26 +74,26 @@ Open your browser at `http://localhost:8000`
 
 ## Features
 
-### Group 1 (Complete)
+### Group 1
 - Firebase login and signup
 - User document created on first login
 - Root directory created on first login
 - Create directory
 - Delete directory
 
-### Group 2 (In Progress)
+### Group 2
 - Navigate into directories
 - Go up a directory
 - Hide go up option at root
 - Upload files to Cloud Storage
 
-### Group 3 (Planned)
+### Group 3
 - Delete files
 - Download files
 - Prevent deletion of non-empty directories
 - Duplicate file detection in current directory
 
-### Group 4 (Planned)
+### Group 4
 - Global duplicate file detection
 - File sharing between accounts
 - UI improvements
